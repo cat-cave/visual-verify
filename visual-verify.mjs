@@ -324,10 +324,24 @@ async function main() {
 
     // ---- browser up ----
     let wsUrl;
+    let tabLoadedUrl = false;
     if (opts.connect) {
       const base = opts.connect.replace(/\/$/, '');
+      let tab = null;
+      for (const method of ['PUT', 'GET']) {
+        try {
+          const r = await fetch(`${base}/json/new?${encodeURIComponent(opts.url)}`, { method });
+          if (r.ok) { tab = await r.json(); break; }
+        } catch { /* older chromium rejects PUT; older still needs GET */ }
+      }
+      if (!tab || !tab.webSocketDebuggerUrl) {
+        const list = await (await fetch(`${base}/json/list`)).json();
+        tab = list.find((t) => t.type === 'page');
+      }
+      if (!tab) die(`no page target at ${base}`);
+      tabLoadedUrl = !!(tab.url && tab.url !== 'about:blank' && tab.url !== '');
+      wsUrl = tab.webSocketDebuggerUrl;
       const ver = await (await fetch(`${base}/json/version`)).json();
-      wsUrl = ver.webSocketDebuggerUrl;
       console.log(`[vv] attached external chromium ${ver.Browser}`);
     } else {
       const bin = findChromium(opts.chromium);
@@ -353,6 +367,7 @@ async function main() {
       }
       if (!up) { console.error(chromeErr); die('chromium failed to start'); }
       const tab = await (await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(opts.url)}`, { method: 'PUT' })).json();
+      tabLoadedUrl = true;
       wsUrl = tab.webSocketDebuggerUrl;
       console.log(`[vv] chromium ${path.basename(bin)} (SwiftShader WebGL)`);
     }
@@ -423,7 +438,10 @@ async function main() {
     };
 
     // ---- navigate, wait ready, settle ----
-    await send('Page.navigate', { url: opts.url });
+    // a tab created with the URL is already loading it; navigating again
+    // aborts the first load's in-flight fetches and manufactures a phantom
+    // "TypeError: Failed to fetch" console error
+    if (!tabLoadedUrl) await send('Page.navigate', { url: opts.url });
     if (opts.readyJs) {
       let ready = false;
       while (Date.now() < deadline) {
