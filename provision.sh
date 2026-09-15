@@ -22,7 +22,8 @@
 set -euo pipefail
 
 CHROME_PORT="${VV_CHROMIUM_PORT:-9333}"
-CONTAINER_NAME="visual-verify-chromium"
+# one namespace for names (shared podman socket!), so scope by host/container
+CONTAINER_NAME="visual-verify-chromium-$(hostname | cut -c1-12)"
 IMAGE="docker.io/zenika/alpine-chrome:latest"
 
 emit_bin() { printf 'export CHROMIUM_BIN=%q\n' "$1"; exit 0; }
@@ -51,6 +52,7 @@ if command -v docker >/dev/null 2>&1 && docker version >/dev/null 2>&1; then
   for _ in $(seq 1 40); do
     if curl -fsS "http://127.0.0.1:${CHROME_PORT}/json/version" >/dev/null 2>&1; then
       printf 'export VV_CONNECT=http://127.0.0.1:%s\n' "$CHROME_PORT"
+      printf 'export VV_CONTAINER_NAME=%q\n' "$CONTAINER_NAME"
       printf 'vv_chromium_cleanup() { docker rm -f %q >/dev/null 2>&1 || true; }\n' "$CONTAINER_NAME"
       exit 0
     fi
