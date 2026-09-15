@@ -324,13 +324,12 @@ async function main() {
 
     // ---- browser up ----
     let wsUrl;
-    let tabLoadedUrl = false;
     if (opts.connect) {
       const base = opts.connect.replace(/\/$/, '');
       let tab = null;
       for (const method of ['PUT', 'GET']) {
         try {
-          const r = await fetch(`${base}/json/new?${encodeURIComponent(opts.url)}`, { method });
+          const r = await fetch(`${base}/json/new?about:blank`, { method });
           if (r.ok) { tab = await r.json(); break; }
         } catch { /* older chromium rejects PUT; older still needs GET */ }
       }
@@ -339,7 +338,6 @@ async function main() {
         tab = list.find((t) => t.type === 'page');
       }
       if (!tab) die(`no page target at ${base}`);
-      tabLoadedUrl = !!(tab.url && tab.url !== 'about:blank' && tab.url !== '');
       wsUrl = tab.webSocketDebuggerUrl;
       const ver = await (await fetch(`${base}/json/version`)).json();
       console.log(`[vv] attached external chromium ${ver.Browser}`);
@@ -366,8 +364,7 @@ async function main() {
         try { await fetch(`http://127.0.0.1:${port}/json/version`); up = true; break; } catch { await sleep(200); }
       }
       if (!up) { console.error(chromeErr); die('chromium failed to start'); }
-      const tab = await (await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(opts.url)}`, { method: 'PUT' })).json();
-      tabLoadedUrl = true;
+      const tab = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json();
       wsUrl = tab.webSocketDebuggerUrl;
       console.log(`[vv] chromium ${path.basename(bin)} (SwiftShader WebGL)`);
     }
@@ -438,10 +435,11 @@ async function main() {
     };
 
     // ---- navigate, wait ready, settle ----
-    // a tab created with the URL is already loading it; navigating again
-    // aborts the first load's in-flight fetches and manufactures a phantom
-    // "TypeError: Failed to fetch" console error
-    if (!tabLoadedUrl) await send('Page.navigate', { url: opts.url });
+    // the tab is created at about:blank so the FIRST document request
+    // happens only after --header legs are armed (--header targets would
+    // otherwise bounce to an auth wall on the pre-header navigation), and
+    // there is exactly one navigation (no aborted-fetch phantom errors)
+    await send('Page.navigate', { url: opts.url });
     if (opts.readyJs) {
       let ready = false;
       while (Date.now() < deadline) {
